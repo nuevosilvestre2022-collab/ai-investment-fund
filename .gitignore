@@ -1,0 +1,31 @@
+# ⚠️ NUNCA subir estas carpetas/archivos a GitHub
+
+# Entorno virtual (pesa 500MB+, Render lo recrea solo)
+venv/
+.venv/
+env/
+
+# Claves secretas (¡MUY IMPORTANTE!)
+.env
+
+# Cache de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Reportes generados (pueden pesar mucho)
+output/
+reports/output/
+
+# Cache de datos
+*.json.tmp
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.code-workspace
