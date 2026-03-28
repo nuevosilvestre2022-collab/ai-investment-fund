@@ -104,7 +104,7 @@ def process_intent_with_history(user_text: str) -> dict:
         return result
     except Exception as e:
         print(f"Error parsing intent: {e}")
-        return {"action": "chat", "reply": "Tuve un pequeño error analizando tu pedido. ¿Podrías reformularlo?"}
+        return {"action": "chat", "reply": f"Tuve un error técnico procesando el pedido. Detalle: <code>{str(e)}</code>"}
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
