@@ -1,0 +1,24 @@
+CÓMO SUBIR TU BOT DE TELEGRAM A LA NUBE (PARA QUE FUNCIONE CON LA PC APAGADA 24/7)
+
+El bot no puede subirse "solo" a la nube porque las plataformas requieren que crees una cuenta con tu Mail personal confirmando que sos humano. Como soy una IA, no tengo un mail válido para registrarte la cuenta.
+
+Pero es completamente GRATIS y súper fácil. Sólo tenés que seguir estos 3 pasos:
+
+PASO 1: CREAR UNA CUENTA EN RENDER
+1. Entrá a https://render.com y hacé clic en "Get Started".
+2. Registrate (es gratis y no pide tarjeta de crédito).
+
+PASO 2: SUBIR ESTA CARPETA A GITHUB
+El código fuente ("Fondo de Inversion IA") tiene que estar en GitHub para que Render lo lea.
+1. Entrá a https://github.com y formate una cuenta (si no tenés).
+2. Hacé clic en "New Repository" (ponéle nombre "mi-bot-ia").
+3. Subí todos los archivos de tu carpeta "fondo_ia" arrastrándolos ahí. ¡No te olvides de subir también el archivo secreto ".env" o vas a tener que escribir las claves a mano en Render!
+
+PASO 3: CONECTAR Y ENCENDER
+1. Volvé a Render.com y hacé clic en "New" -> "Web Service" o "Background Worker".
+2. Vinculá tu GitHub y elegí el repositorio "mi-bot-ia".
+3. En "Start Command" escribí: python bot.py
+4. Clic en "Create".
+
+¡LISTO!
+Render va a instalar la inteligencia artificial (usando tu requirements.txt) y el bot quedará encendido online, 24 horas al día, 365 días al año. Ya podés apagar la PC de tu casa tranquilo.
