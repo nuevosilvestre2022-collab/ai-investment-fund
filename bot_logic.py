@@ -62,14 +62,15 @@ anthropic_tools = [
     {"name": "search_knowledge_base", "description": "Buscar en notas", "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}
 ]
 
-# Nombres de modelos para rotación resiliente
-CLAUDE_MODELS = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest", "claude-3-haiku-20240307"]
+# Nombres de modelos para rotación resiliente (Probamos con y sin prefijo models/)
+CLAUDE_MODELS = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest", "claude-3-haiku-20240307", "claude-3-sonnet-20240229"]
 GEMINI_MODELS = [
-    "gemini-2.5-pro", 
-    "gemini-2.0-flash", 
-    "gemini-pro-latest", 
-    "gemini-1.5-flash-latest",
-    "gemini-flash-latest"
+    "models/gemini-2.0-flash", 
+    "gemini-2.0-flash",
+    "models/gemini-pro-latest", 
+    "gemini-pro-latest",
+    "models/gemini-1.5-flash",
+    "gemini-1.5-flash"
 ]
 
 async def process_message(text: str, history: list) -> str:
