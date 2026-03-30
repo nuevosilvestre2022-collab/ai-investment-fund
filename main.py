@@ -54,7 +54,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     # Procesar con Claude/Gemini pasando la historia del usuario
-    respuesta_ia = process_message(text, user_sessions[user_id])
+    respuesta_ia = await process_message(text, user_sessions[user_id])
     
     # Limitar historia para no explotar tokens (mantenemos últimos 15 mensajes)
     if len(user_sessions[user_id]) > 15:
