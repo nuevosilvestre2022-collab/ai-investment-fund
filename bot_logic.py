@@ -19,17 +19,17 @@ gemini_model = genai.GenerativeModel('gemini-2.0-flash')
 
 # Persona: Executive Second Brain (Advanced Operator Mode)
 SYSTEM_PROMPT = """
-Sos el "Executive Second Brain" de Santiago. No sos un asistente pasivo; sos un OPERADOR ESTRATÉGICO de Real Estate y Finanzas. 
+Sos el "Executive Second Brain" de Santiago. No sos un asistente; sos un OPERADOR ESTRATÉGICO. 
 
-TU ADN (CÓMO TRABAJÁS):
-1. PENSAMIENTO LATERAL: Si Santiago te pregunta algo complejo (ej. Pilar), analizá tendencias, rentabilidad y comparativas.
-2. RAZONAMIENTO: Empezá tus respuestas con un breve análisis para que Santiago vea CÓMO razonás.
-3. TONO: Sos un par. Un consultor estratégico. Usá español rioplatense (voseo) profesional.
-4. ACCIÓN: Buscá siempre proponer el siguiente paso lógico.
+TU ADN:
+1. RAZONAMIENTO: Siempre explicá tu lógica. Santiago quiere ver CÓMO pensás el mercado.
+2. INICIATIVA: Si ves una oportunidad (dólar bajo, zona en alza), proponela.
+3. TONO: Socio de confianza, nivel premium. Español rioplatense (voseo).
+4. ACCIÓN: Buscá siempre el siguiente paso de negocios.
 
 REGLAS:
-- Formato Elite: Negritas, listas y separadores Markdown para Telegram.
-- Herramientas: Usalas SIEMPRE para validar tus corazonadas con datos.
+- Formato impecable en Telegram (negritas, listas).
+- Herramientas mandatorias para datos reales.
 """
 
 async def search_knowledge_base(query: str):
@@ -64,14 +64,12 @@ anthropic_tools = [
 
 async def process_message(text: str, history: list) -> str:
     history.append({"role": "user", "content": text})
-    dynamic_system = SYSTEM_PROMPT + f"\n\n[FECHA]: {datetime.datetime.now()}"
+    dynamic_system = SYSTEM_PROMPT + f"\n\n[TIEMPO REAL]: {datetime.datetime.now()}"
     
-    debug_info = ""
-
-    # Intentar con Claude 3.5 Sonnet (Principal)
+    # 1. INTENTO PRINCIPAL: Claude 3.5 Sonnet
     try:
         response = await anthropic_client.messages.create(
-            model="claude-3-5-sonnet-20241022", # Versión específica y estable
+            model="claude-3-5-sonnet-20241022",
             max_tokens=2048,
             system=dynamic_system,
             tools=anthropic_tools,
@@ -79,33 +77,27 @@ async def process_message(text: str, history: list) -> str:
         )
         return await handle_anthropic_response(response, history, dynamic_system)
     except Exception as e:
-        debug_info += f"⚠️ Claude Sonnet Error: {str(e)[:100]}\n"
-        print(f"Error Claude Sonnet: {e}")
+        print(f"Claude Sonnet deshabilitado (esperando activación de cuenta): {e}")
         
-        # Fallback 1: Claude 3 Haiku
+        # 2. FALLBACK DE INTELIGENCIA: Gemini 1.5 Pro (Smarter than Flash)
         try:
-            response_haiku = await anthropic_client.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=2048,
-                system=dynamic_system,
-                tools=anthropic_tools,
-                messages=history
-            )
-            return await handle_anthropic_response(response_haiku, history, dynamic_system)
-        except Exception as e2:
-            debug_info += f"⚠️ Claude Haiku Error: {str(e2)[:100]}\n"
-            print(f"Error Claude Haiku: {e2}")
+            # Usamos Pro para que el razonamiento sea de primer nivel
+            model_pro = genai.GenerativeModel('gemini-1.5-pro')
+            chat_ctx = "\n".join([f"{m['role']}: {str(m.get('content'))[:500]}" for m in history[-8:]])
+            prompt = f"{dynamic_system}\n\n[MODO RESILIENCIA ACTIVO]\nResponde con razonamiento profundo y el tono ejecutivo habitual.\n\nContexto:\n{chat_ctx}"
             
-            # Fallback 2: Gemini 2.0 Flash (Última instancia)
+            response_google = await model_pro.generate_content_async(prompt)
+            history.append({"role": "assistant", "content": response_google.text})
+            
+            note = "\n\n_(Nota: Operando con motor de respaldo Pro. Claude se activará automáticamente apenas Anthropic habilite tu llave)._"
+            return response_google.text + note
+        except Exception as ge:
+            # 3. ÚLTIMO RECURSO: Gemini 2.0 Flash
             try:
-                chat_ctx = "\n".join([f"{m['role']}: {str(m.get('content'))[:200]}" for m in history[-5:]])
-                prompt = f"{dynamic_system}\n\nContexto: {chat_ctx}\n\nResponde profundamente."
-                response_gemini = await gemini_model.generate_content_async(prompt)
-                res_text = response_gemini.text + f"\n\n_(Nota: Respaldo Gemini activo debido a fallas en Claude)_\n---\nDEBUG: {debug_info}"
-                history.append({"role": "assistant", "content": response_gemini.text})
-                return res_text
-            except Exception as ge:
-                return f"❌ Falla total de sistemas. Errores:\n{debug_info}\nGemini Error: {ge}"
+                res_flash = await gemini_model.generate_content_async(f"{dynamic_system}\n\nResponde rápido: {text}")
+                return res_flash.text + "\n\n_(Modo emergencia Flash)_"
+            except:
+                return f"❌ Falla crítica de conexión. Por favor revisá tu saldo en Anthropic o el límite de Google API."
 
 async def handle_anthropic_response(response, history, dynamic_system):
     tool_uses = [b for b in response.content if getattr(b, "type", "") == "tool_use"]
