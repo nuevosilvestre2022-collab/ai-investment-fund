@@ -93,11 +93,13 @@ async def process_message(text: str, history: list) -> str:
             return response_google.text + note
         except Exception as ge:
             # 3. ÚLTIMO RECURSO: Gemini 2.0 Flash
+            print(f"Error Gemini 1.5 Pro: {ge}")
             try:
                 res_flash = await gemini_model.generate_content_async(f"{dynamic_system}\n\nResponde rápido: {text}")
-                return res_flash.text + "\n\n_(Modo emergencia Flash)_"
-            except:
-                return f"❌ Falla crítica de conexión. Por favor revisá tu saldo en Anthropic o el límite de Google API."
+                debug_info = f"\n\n---\nDEBUG:\n- Claude Error: {str(e)[:100]}\n- Gemini Pro Error: {str(ge)[:100]}"
+                return res_flash.text + "\n\n_(Modo emergencia Flash)_" + debug_info
+            except Exception as fe:
+                return f"❌ Falla crítica total.\nClaude: {str(e)[:50]}\nGemini Pro: {str(ge)[:50]}\nFlash: {str(fe)[:50]}"
 
 async def handle_anthropic_response(response, history, dynamic_system):
     tool_uses = [b for b in response.content if getattr(b, "type", "") == "tool_use"]
