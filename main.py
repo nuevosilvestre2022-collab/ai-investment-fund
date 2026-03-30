@@ -21,31 +21,51 @@ logging.basicConfig(
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT = int(os.environ.get("PORT", "8000")) # Para Render
 
+# Memoria por usuario
+user_sessions = {}
+
 async def handle_health_check(request):
-    """Responder OK a Render."""
+    """Responder OK a Render y UptimeRobot."""
     return web.Response(text="Bot is ALIVE", status=200)
+
+async def handle_ping(request):
+    """Endpoint de compatibilidad /ping."""
+    return web.json_response({"status": "ok", "bot": "running"})
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja el comando /start."""
-    user = update.effective_user
+    user_id = update.effective_user.id
+    user_sessions[user_id] = [] # Reset memory
     await update.message.reply_text(
-        f"Hola {user.first_name}. Soy tu **Executive Second Brain**.\n"
-        "Estoy listo para operar. Mandame tus leads, pedime tasaciones o consultame el mercado.\n"
+        f"Hola {update.effective_user.first_name}. Soy tu **Executive Second Brain**.\n"
+        "He reseteado nuestra sesión. Estoy listo para operar con razonamiento profundo.\n"
         "Usa /report para el resumen diario."
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Procesa mensajes de texto del usuario."""
     text = update.message.text
-    print(f"\n[NUEVO TELEGRAM] {update.effective_user.first_name}: {text}")
+    user_id = update.effective_user.id
     
+    if user_id not in user_sessions:
+        user_sessions[user_id] = []
+    
+    print(f"\n[NUEVO TELEGRAM] {update.effective_user.first_name}: {text}")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
-    # Procesar con Claude (bot_logic)
-    respuesta_ia = process_message(text)
+    # Procesar con Claude/Gemini pasando la historia del usuario
+    respuesta_ia = process_message(text, user_sessions[user_id])
+    
+    # Limitar historia para no explotar tokens (mantenemos últimos 15 mensajes)
+    if len(user_sessions[user_id]) > 15:
+        user_sessions[user_id] = user_sessions[user_id][-15:]
     
     # Responder
-    await update.message.reply_text(respuesta_ia, parse_mode='Markdown')
+    try:
+        await update.message.reply_text(respuesta_ia, parse_mode='Markdown')
+    except Exception as e:
+        print(f"Error parseando Markdown, enviando como texto plano: {e}")
+        await update.message.reply_text(respuesta_ia)
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja el comando /report."""
@@ -77,9 +97,11 @@ async def run_bot():
 
 async def main():
     """Inicia tanto el servidor web como el bot."""
-    # Servidor Web para Render Health Check
+    # Servidor Web para Render Health Check y UptimeRobot
     app_web = web.Application()
     app_web.router.add_get("/", handle_health_check)
+    app_web.router.add_get("/ping", handle_ping)
+    app_web.router.add_get("/health", handle_ping)
     runner = web.AppRunner(app_web)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
