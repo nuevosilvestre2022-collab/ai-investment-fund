@@ -66,10 +66,12 @@ async def process_message(text: str, history: list) -> str:
     history.append({"role": "user", "content": text})
     dynamic_system = SYSTEM_PROMPT + f"\n\n[FECHA]: {datetime.datetime.now()}"
     
+    debug_info = ""
+
     # Intentar con Claude 3.5 Sonnet (Principal)
     try:
         response = await anthropic_client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model="claude-3-5-sonnet-20241022", # Versión específica y estable
             max_tokens=2048,
             system=dynamic_system,
             tools=anthropic_tools,
@@ -77,9 +79,10 @@ async def process_message(text: str, history: list) -> str:
         )
         return await handle_anthropic_response(response, history, dynamic_system)
     except Exception as e:
-        print(f"Error Claude Sonnet: {e}. Intentando Haiku...")
+        debug_info += f"⚠️ Claude Sonnet Error: {str(e)[:100]}\n"
+        print(f"Error Claude Sonnet: {e}")
         
-        # Fallback 1: Claude 3 Haiku (Barato y disponible)
+        # Fallback 1: Claude 3 Haiku
         try:
             response_haiku = await anthropic_client.messages.create(
                 model="claude-3-haiku-20240307",
@@ -90,17 +93,19 @@ async def process_message(text: str, history: list) -> str:
             )
             return await handle_anthropic_response(response_haiku, history, dynamic_system)
         except Exception as e2:
-            print(f"Error Claude Haiku: {e2}. Intentando Gemini...")
+            debug_info += f"⚠️ Claude Haiku Error: {str(e2)[:100]}\n"
+            print(f"Error Claude Haiku: {e2}")
             
             # Fallback 2: Gemini 2.0 Flash (Última instancia)
             try:
                 chat_ctx = "\n".join([f"{m['role']}: {str(m.get('content'))[:200]}" for m in history[-5:]])
                 prompt = f"{dynamic_system}\n\nContexto: {chat_ctx}\n\nResponde profundamente."
                 response_gemini = await gemini_model.generate_content_async(prompt)
+                res_text = response_gemini.text + f"\n\n_(Nota: Respaldo Gemini activo debido a fallas en Claude)_\n---\nDEBUG: {debug_info}"
                 history.append({"role": "assistant", "content": response_gemini.text})
-                return response_gemini.text + "\n\n_(Respaldo Gemini activo)_"
+                return res_text
             except Exception as ge:
-                return f"❌ Falla total de sistemas: {ge}"
+                return f"❌ Falla total de sistemas. Errores:\n{debug_info}\nGemini Error: {ge}"
 
 async def handle_anthropic_response(response, history, dynamic_system):
     tool_uses = [b for b in response.content if getattr(b, "type", "") == "tool_use"]
