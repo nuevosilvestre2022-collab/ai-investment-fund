@@ -18,25 +18,24 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 gemini_model = genai.GenerativeModel('gemini-2.0-flash')
 
 # Persona: Executive Second Brain specialized in Real Estate
-system_instruction_base = """
-Actúa como un "Second Brain Ejecutivo" especializado en real estate, automatización comercial, análisis financiero global y consulta inteligente en tiempo real. 
-No sos un chatbot: sos un operador de negocio. Tu objetivo es cerrar operaciones, detectar oportunidades antes que el mercado y automatizar decisiones.
+SYSTEM_PROMPT = """
+Actúa como un "Executive Business Operator" y "Second Brain" de altísimo nivel. 
+Tu especialidad es el Real Estate, la ingeniería financiera y el análisis de mercado ultra-específico.
 
-REGLAS DE OPERACIÓN:
-- Canal: Telegram (usá negritas, listas y formato Markdown).
-- Tono: Profesional, Directo, Estratégico, Nivel alto (cliente premium).
-- Idioma: Español Rioplatense (Argentino) con voseo ('che', 'fijate', 'tenés').
-- Estilo: Respuestas cortas, estructuradas y 100% accionables. Sin relleno.
-- Prioridad: Decisiones y acciones sobre explicaciones teóricas.
+FILOSOFÍA DE RESPUESTA:
+1. NO SOS UN CHATBOT: Sos un socio de negocios que razona, cuestiona y propone. No esperes a que te pidan "códigos"; tené una conversación fluida pero técnica.
+2. RAZONAMIENTO (Chain of Thought): Antes de dar una cifra, explicá brevemente la lógica de mercado detrás (ej. oferta/demanda, contexto macro, costo de oportunidad).
+3. TONO: Profesional, estratégico, directo, nivel premium (español rioplatense refinado).
+4. ACCIÓN: Siempre buscá el cierre o el siguiente paso lógico (visita, reserva, análisis profundo).
 
-FUNCIONES:
-1) GESTIÓN DE LEADS: Clasificá siempre en Caliente, Tibio o Frío. Mensaje listo para enviar/copiar.
-2) TASACIÓN: Usá la herramienta 'estimate_property_value'. Explicación en máx 5 líneas.
-3) MERCADO: Usá 'get_market_dashboard' para datos en tiempo real de USD y bolsa.
-4) AGENDA: Usá 'create_event' para agendar visitas o llamadas.
-5) KNOWLEDGE BASE (NOTION MODE): Usá 'search_knowledge_base' para consultar documentos guardados.
+CAPACIDADES ESPECIALES:
+- Análisis de Barrios: Si te piden Pilar o zonas específicas, razoná sobre la infraestructura, seguridad y perfiles de comprador (Inversores vs Consumidores finales).
+- Gestión de Leads: Clasificá el interés y armá la estrategia de seguimiento.
+- Tasación: No solo des el m2, analizá si la propiedad está en precio para "salir rápido" o para "retener valor".
 
-[DATO CRÍTICO]: Siempre que te pidan info de mercado, tasar o buscar en tus notas, USÁ LAS HERRAMIENTAS correspondientes. 
+REGLAS DE FORMATO:
+- Usá Markdown (negritas, listas) para que en Telegram se vea IMPECABLE.
+- Respuestas densas en valor pero cortas en lectura.
 """
 
 def search_knowledge_base(query: str):
@@ -49,7 +48,7 @@ def search_knowledge_base(query: str):
             content = file.read()
             if query in content.lower() or query in f.lower():
                 results.append(f"--- ARCHIVO: {os.path.basename(f)} ---\n{content}\n")
-    return "\n\n".join(results[:3]) if results else "No encontré notas específicas."
+    return "\n\n".join(results[:3]) if results else "No encontré notas específicas en el Second Brain."
 
 def run_tool(name, args):
     if name == "create_event":
@@ -88,12 +87,12 @@ anthropic_tools = [
     },
     {
         "name": "get_market_dashboard",
-        "description": "Obtiene dólares y mercado.",
+        "description": "Obtiene dólares y panorama de mercado actual.",
         "input_schema": {"type": "object", "properties": {}}
     },
     {
         "name": "estimate_property_value",
-        "description": "Tasación de propiedad.",
+        "description": "Calcula valor estimado según m2 y zona (CABA).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -105,7 +104,7 @@ anthropic_tools = [
     },
     {
         "name": "search_knowledge_base",
-        "description": "Busca en el Second Brain.",
+        "description": "Busca en el Second Brain (documentos locales).",
         "input_schema": {
             "type": "object",
             "properties": {"query": {"type": "string"}},
@@ -114,15 +113,15 @@ anthropic_tools = [
     }
 ]
 
-messages = []
-
-def process_message(text: str) -> str:
-    global messages
-    messages.append({"role": "user", "content": text})
+def process_message(text: str, history: list) -> str:
+    """
+    Procesa un mensaje manteniendo la historia específica del usuario.
+    """
+    history.append({"role": "user", "content": text})
     
     ahora = datetime.datetime.now()
     fecha_exacta_str = ahora.strftime('%A %d de %B del %Y a las %H:%M hs')
-    dynamic_system = system_instruction_base + f"\n\n[FECHA ACTUAL]: {fecha_exacta_str}."
+    dynamic_system = SYSTEM_PROMPT + f"\n\n[DATO CRÍTICO]: Hoy es {fecha_exacta_str}. Ajustá tus análisis a este tiempo real."
     
     try:
         # Intento con Claude
@@ -131,40 +130,45 @@ def process_message(text: str) -> str:
             max_tokens=2048,
             system=dynamic_system,
             tools=anthropic_tools,
-            messages=messages
+            messages=history
         )
         
-        messages.append({"role": "assistant", "content": response.content})
+        # Procesar herramientas
         tool_uses = [b for b in response.content if getattr(b, "type", "") == "tool_use"]
         
         if tool_uses:
-            tool_results = []
+            history.append({"role": "assistant", "content": response.content})
             for tool_use in tool_uses:
                 res = run_tool(tool_use.name, tool_use.input)
-                tool_results.append({
+                history.append({
                     "role": "user",
                     "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": res}]
                 })
-            messages.extend(tool_results)
+            
             final_response = anthropic_client.messages.create(
                 model="claude-3-5-sonnet-20240620",
                 max_tokens=2048,
                 system=dynamic_system,
                 tools=anthropic_tools,
-                messages=messages
+                messages=history
             )
-            messages.append({"role": "assistant", "content": final_response.content})
-            return next((b.text for b in final_response.content if getattr(b, "type", "") == "text"), "Ok.")
+            history.append({"role": "assistant", "content": final_response.content})
+            return next((b.text for b in final_response.content if getattr(b, "type", "") == "text"), "Respuesta procesada con impacto.")
         else:
-            return next((b.text for b in response.content if getattr(b, "type", "") == "text"), "Dime.")
+            assistant_text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "Analizando...")
+            history.append({"role": "assistant", "content": assistant_text})
+            return assistant_text
 
     except Exception as e:
-        print(f"Fallback detectado. Error Claude: {e}")
-        # FALLBACK A GEMINI 2.0 FLASH
+        print(f"Fallback Error Claude: {e}")
         try:
-            # Gemini chat manual (simplificado para no implementar todas las herramientas de nuevo aquí)
-            prompt_gemini = f"{dynamic_system}\n\nUsuario dice: {text}\n\nResponde como el Executive Second Brain."
+            # Fallback Gemini con HISTORIA (simplificado)
+            # Para mantener la sesión en Gemini, convertimos history a un prompt concatenado rápido
+            chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in history[-5:]])
+            prompt_gemini = f"{dynamic_system}\n\nCONTEXTO RECIENTE:\n{chat_context}\n\nExecutive, respondé al último mensaje con razonamiento profundo."
             res_gemini = gemini_model.generate_content(prompt_gemini)
-            return res_gemini.text + "\n\n_(Nota: Respondiendo via motor de respaldo Gemini 2.0)_"
+            
+            history.append({"role": "assistant", "content": res_gemini.text})
+            return res_gemini.text + "\n\n_(Nota: Respondiendo via sistema de respaldo Gemini 2.0)_"
         except Exception as ge:
-            return f"❌ Error total en ambos motores: {ge}"
+            return f"❌ Falla crítica de sistemas: {ge}"
