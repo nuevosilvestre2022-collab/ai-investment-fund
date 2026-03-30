@@ -62,44 +62,50 @@ anthropic_tools = [
     {"name": "search_knowledge_base", "description": "Buscar en notas", "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}
 ]
 
+# Nombres de modelos para rotación resiliente
+CLAUDE_MODELS = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620", "claude-3-haiku-20240307"]
+GEMINI_MODELS = ["gemini-1.5-pro-latest", "gemini-1.5-pro", "gemini-1.5-flash-latest", "gemini-1.5-flash"]
+
 async def process_message(text: str, history: list) -> str:
     history.append({"role": "user", "content": text})
     dynamic_system = SYSTEM_PROMPT + f"\n\n[TIEMPO REAL]: {datetime.datetime.now()}"
     
-    # 1. INTENTO PRINCIPAL: Claude 3.5 Sonnet
-    try:
-        response = await anthropic_client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=2048,
-            system=dynamic_system,
-            tools=anthropic_tools,
-            messages=history
-        )
-        return await handle_anthropic_response(response, history, dynamic_system)
-    except Exception as e:
-        print(f"Claude Sonnet deshabilitado (esperando activación de cuenta): {e}")
-        
-        # 2. FALLBACK DE INTELIGENCIA: Gemini 1.5 Pro (Smarter than Flash)
+    error_log = []
+
+    # 1. INTENTAR CLAUDE (Prioridad Alta)
+    for model_name in CLAUDE_MODELS:
         try:
-            # Usamos Pro para que el razonamiento sea de primer nivel
-            model_pro = genai.GenerativeModel('gemini-1.5-pro')
-            chat_ctx = "\n".join([f"{m['role']}: {str(m.get('content'))[:500]}" for m in history[-8:]])
-            prompt = f"{dynamic_system}\n\n[MODO RESILIENCIA ACTIVO]\nResponde con razonamiento profundo y el tono ejecutivo habitual.\n\nContexto:\n{chat_ctx}"
+            response = await anthropic_client.messages.create(
+                model=model_name,
+                max_tokens=2048,
+                system=dynamic_system,
+                tools=anthropic_tools,
+                messages=history
+            )
+            return await handle_anthropic_response(response, history, dynamic_system)
+        except Exception as e:
+            error_log.append(f"Claude ({model_name}): {str(e)[:50]}")
+            continue
+
+    # 2. FALLBACK GEMINI (Inteligencia Pro -> Flash)
+    for g_model in GEMINI_MODELS:
+        try:
+            model = genai.GenerativeModel(g_model)
+            chat_ctx = "\n".join([f"{m['role']}: {str(m.get('content'))[:400]}" for m in history[-6:]])
+            prompt = f"{dynamic_system}\n\n[MODO RESILIENCIA]\nContexto:\n{chat_ctx}\n\nSantiago dice: {text}"
             
-            response_google = await model_pro.generate_content_async(prompt)
-            history.append({"role": "assistant", "content": response_google.text})
-            
-            note = "\n\n_(Nota: Operando con motor de respaldo Pro. Claude se activará automáticamente apenas Anthropic habilite tu llave)._"
-            return response_google.text + note
+            response_google = await model.generate_content_async(prompt)
+            if response_google.text:
+                history.append({"role": "assistant", "content": response_google.text})
+                footer = f"\n\n_(Usando {g_model} por mantenimiento en Claude)_"
+                return response_google.text + footer
         except Exception as ge:
-            # 3. ÚLTIMO RECURSO: Gemini 2.0 Flash
-            print(f"Error Gemini 1.5 Pro: {ge}")
-            try:
-                res_flash = await gemini_model.generate_content_async(f"{dynamic_system}\n\nResponde rápido: {text}")
-                debug_info = f"\n\n---\nDEBUG:\n- Claude Error: {str(e)[:100]}\n- Gemini Pro Error: {str(ge)[:100]}"
-                return res_flash.text + "\n\n_(Modo emergencia Flash)_" + debug_info
-            except Exception as fe:
-                return f"❌ Falla crítica total.\nClaude: {str(e)[:50]}\nGemini Pro: {str(ge)[:50]}\nFlash: {str(fe)[:50]}"
+            error_log.append(f"Gemini ({g_model}): {str(ge)[:50]}")
+            continue
+
+    # 3. ÚLTIMO RECURSO (Falla Total)
+    debug_str = "\n".join(error_log)
+    return f"❌ Error Crítico: No pude conectar con ninguna IA.\nDetalles:\n{debug_str[:200]}"
 
 async def handle_anthropic_response(response, history, dynamic_system):
     tool_uses = [b for b in response.content if getattr(b, "type", "") == "tool_use"]
