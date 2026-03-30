@@ -1,6 +1,6 @@
 import os
 import json
-import anthropic
+from anthropic import AsyncAnthropic
 import google.generativeai as genai
 import datetime
 import glob
@@ -10,10 +10,10 @@ from market_data import get_dolar_rates, get_m2_valuation, get_market_summary
 
 load_dotenv()
 
-# Cliente Anthropic
-anthropic_client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
+# Clientes Asincrónicos
+anthropic_client = AsyncAnthropic(api_key=os.getenv("CLAUDE_API_KEY"))
 
-# Configuración Gemini (Fallback)
+# Gemini (ya soporta async en su modelo si se llama adecuadamente)
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 gemini_model = genai.GenerativeModel('gemini-2.0-flash')
 
@@ -22,106 +22,53 @@ SYSTEM_PROMPT = """
 Sos el "Executive Second Brain" de Santiago. No sos un asistente pasivo; sos un OPERADOR ESTRATÉGICO de Real Estate y Finanzas. 
 
 TU ADN (CÓMO TRABAJÁS):
-1. PENSAMIENTO LATERAL: Si Santiago te pregunta por Pilar, no le des solo precios. Hablale de la tendencia de migración, la rentabilidad de las expensas, y comparalo con otras zonas.
-2. RAZONAMIENTO ANTES DE LA ACCIÓN: Siempre que enfrentes un problema complejo, empezá tu respuesta con un breve análisis situacional. Santiago quiere ver CÓMO razonás.
-3. INICIATIVA: No esperes órdenes. Si detectás una oportunidad en los datos, proponela. "Che, fijate que el MEP bajó, es buen momento para X".
-4. TONO: Sos un par. Un consultor de confianza de alto nivel. Usá español rioplatense (voseo) marcado pero profesional. "Fijate", "che", "tenés", "mirá".
+1. PENSAMIENTO LATERAL: Si Santiago te pregunta algo complejo (ej. Pilar), analizá tendencias, rentabilidad y comparativas.
+2. RAZONAMIENTO: Empezá tus respuestas con un breve análisis para que Santiago vea CÓMO razonás.
+3. TONO: Sos un par. Un consultor estratégico. Usá español rioplatense (voseo) profesional.
+4. ACCIÓN: Buscá siempre proponer el siguiente paso lógico.
 
-REGLAS DE ORO:
-- Calidad sobre Cantidad: No rellenes con texto genérico. Cada palabra tiene que valer plata. 
-- Formato Elite: Usá negritas, listas y separadores para que en Telegram la lectura sea instantánea y ejecutiva.
-- Herramientas: Usalas SIEMPRE para validar tus corazonadas con datos reales de m2 o dólares.
-- Memoria: Recordá lo que charlaron. Si Santiago te mencionó una preferencia hace 5 mensajes, traela a colación si es relevante.
+REGLAS:
+- Formato Elite: Negritas, listas y separadores Markdown para Telegram.
+- Herramientas: Usalas SIEMPRE para validar tus corazonadas con datos.
 """
 
-def search_knowledge_base(query: str):
+async def search_knowledge_base(query: str):
     kb_path = "knowledge_base/*.md"
     results = []
     files = glob.glob(kb_path)
-    query = query.lower()
     for f in files:
         with open(f, 'r', encoding='utf-8') as file:
             content = file.read()
-            if query in content.lower() or query in f.lower():
+            if query.lower() in content.lower():
                 results.append(f"--- ARCHIVO: {os.path.basename(f)} ---\n{content}\n")
-    return "\n\n".join(results[:3]) if results else "No encontré notas específicas en el Second Brain."
+    return "\n\n".join(results[:3]) if results else "No encontré notas específicas."
 
-def run_tool(name, args):
-    if name == "create_event":
-        return create_event(**args)
-    elif name == "get_market_dashboard":
-        fx = get_dolar_rates()
-        mkt = get_market_summary()
-        return json.dumps({"dolares": fx, "contexto": mkt}, indent=2)
+async def run_tool(name, args):
+    if name == "get_market_dashboard":
+        return json.dumps({"dolares": get_dolar_rates(), "contexto": get_market_summary()}, indent=2)
     elif name == "estimate_property_value":
         val = get_m2_valuation(args['neighborhood'])
-        m2 = args['m2']
-        res = {
-            "min": val['range'][0] * m2,
-            "recomendado": val['avg'] * m2,
-            "optimista": val['range'][1] * m2,
-            "valor_m2_avg": val['avg']
-        }
-        return json.dumps(res, indent=2)
+        return json.dumps({"min": val['range'][0]*args['m2'], "avg": val['avg']*args['m2']}, indent=2)
     elif name == "search_knowledge_base":
-        return search_knowledge_base(args['query'])
-    return "Herramienta no encontrada."
+        return await search_knowledge_base(args['query'])
+    elif name == "create_event":
+        return create_event(**args)
+    return "Error: Tool not found."
 
-# Claude Tool Definitions
 anthropic_tools = [
-    {
-        "name": "create_event",
-        "description": "Agenda un evento en el Google Calendar.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "summary": {"type": "string"},
-                "start_time_iso": {"type": "string"}
-            },
-            "required": ["summary", "start_time_iso"]
-        }
-    },
-    {
-        "name": "get_market_dashboard",
-        "description": "Obtiene dólares y panorama de mercado actual.",
-        "input_schema": {"type": "object", "properties": {}}
-    },
-    {
-        "name": "estimate_property_value",
-        "description": "Calcula valor estimado según m2 y zona (CABA).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "neighborhood": {"type": "string"},
-                "m2": {"type": "number"}
-            },
-            "required": ["neighborhood", "m2"]
-        }
-    },
-    {
-        "name": "search_knowledge_base",
-        "description": "Busca en el Second Brain (documentos locales).",
-        "input_schema": {
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"]
-        }
-    }
+    {"name": "create_event", "description": "Agenda en Calendar", "input_schema": {"type": "object", "properties": {"summary": {"type": "string"}, "start_time_iso": {"type": "string"}}, "required": ["summary", "start_time_iso"]}},
+    {"name": "get_market_dashboard", "description": "USD y Mercado", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "estimate_property_value", "description": "Tasar propiedad", "input_schema": {"type": "object", "properties": {"neighborhood": {"type": "string"}, "m2": {"type": "number"}}, "required": ["neighborhood", "m2"]}},
+    {"name": "search_knowledge_base", "description": "Buscar en notas", "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}
 ]
 
-def process_message(text: str, history: list) -> str:
-    """
-    Procesa un mensaje manteniendo la historia específica del usuario.
-    """
+async def process_message(text: str, history: list) -> str:
     history.append({"role": "user", "content": text})
-    
-    ahora = datetime.datetime.now()
-    fecha_exacta_str = ahora.strftime('%A %d de %B del %Y a las %H:%M hs')
-    dynamic_system = SYSTEM_PROMPT + f"\n\n[DATO CRÍTICO]: Hoy es {fecha_exacta_str}. Ajustá tus análisis a este tiempo real."
+    dynamic_system = SYSTEM_PROMPT + f"\n\n[FECHA]: {datetime.datetime.now()}"
     
     try:
-        # Intento con Claude
-        response = anthropic_client.messages.create(
+        # Llamada ASYNC a Claude
+        response = await anthropic_client.messages.create(
             model="claude-3-5-sonnet-20240620",
             max_tokens=2048,
             system=dynamic_system,
@@ -129,42 +76,36 @@ def process_message(text: str, history: list) -> str:
             messages=history
         )
         
-        # Procesar herramientas
         tool_uses = [b for b in response.content if getattr(b, "type", "") == "tool_use"]
         
         if tool_uses:
             history.append({"role": "assistant", "content": response.content})
-            for tool_use in tool_uses:
-                res = run_tool(tool_use.name, tool_use.input)
-                history.append({
-                    "role": "user",
-                    "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": res}]
-                })
+            for tu in tool_uses:
+                res = await run_tool(tu.name, tu.input)
+                history.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tu.id, "content": res}]})
             
-            final_response = anthropic_client.messages.create(
+            final_res = await anthropic_client.messages.create(
                 model="claude-3-5-sonnet-20240620",
                 max_tokens=2048,
                 system=dynamic_system,
                 tools=anthropic_tools,
                 messages=history
             )
-            history.append({"role": "assistant", "content": final_response.content})
-            return next((b.text for b in final_response.content if getattr(b, "type", "") == "text"), "Respuesta procesada con impacto.")
+            txt = next((b.text for b in final_res.content if getattr(b, "type", "") == "text"), "Ok.")
+            history.append({"role": "assistant", "content": txt})
+            return txt
         else:
-            assistant_text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "Analizando...")
-            history.append({"role": "assistant", "content": assistant_text})
-            return assistant_text
+            txt = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "Analizado.")
+            history.append({"role": "assistant", "content": txt})
+            return txt
 
     except Exception as e:
-        print(f"Fallback Error Claude: {e}")
+        print(f"Fallback Async Gemini: {e}")
         try:
-            # Fallback Gemini con HISTORIA (simplificado)
-            # Para mantener la sesión en Gemini, convertimos history a un prompt concatenado rápido
-            chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in history[-5:]])
-            prompt_gemini = f"{dynamic_system}\n\nCONTEXTO RECIENTE:\n{chat_context}\n\nExecutive, respondé al último mensaje con razonamiento profundo."
-            res_gemini = gemini_model.generate_content(prompt_gemini)
-            
-            history.append({"role": "assistant", "content": res_gemini.text})
-            return res_gemini.text + "\n\n_(Nota: Respondiendo via sistema de respaldo Gemini 2.0)_"
+            chat_ctx = "\n".join([f"{m['role']}: {str(m['content'])[:200]}" for m in history[-5:]])
+            prompt = f"{dynamic_system}\n\nContexto: {chat_ctx}\n\nResponde profundamente."
+            response_gemini = await gemini_model.generate_content_async(prompt)
+            history.append({"role": "assistant", "content": response_gemini.text})
+            return response_gemini.text + "\n\n_(Respaldo Gemini activo)_"
         except Exception as ge:
             return f"❌ Falla crítica de sistemas: {ge}"
