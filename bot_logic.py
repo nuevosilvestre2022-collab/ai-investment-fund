@@ -65,12 +65,12 @@ anthropic_tools = [
 # Nombres de modelos para rotación resiliente (Probamos con y sin prefijo models/)
 CLAUDE_MODELS = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest", "claude-3-haiku-20240307", "claude-3-sonnet-20240229"]
 GEMINI_MODELS = [
-    "models/gemini-2.0-flash", 
-    "gemini-2.0-flash",
-    "models/gemini-pro-latest", 
+    "gemini-2.0-flash", 
+    "models/gemini-2.0-flash",
     "gemini-pro-latest",
-    "models/gemini-1.5-flash",
-    "gemini-1.5-flash"
+    "models/gemini-pro-latest", 
+    "gemini-1.5-flash",
+    "models/gemini-1.5-flash"
 ]
 
 async def process_message(text: str, history: list) -> str:
@@ -78,8 +78,12 @@ async def process_message(text: str, history: list) -> str:
     dynamic_system = SYSTEM_PROMPT + f"\n\n[TIEMPO REAL]: {datetime.datetime.now()}"
     
     error_log = []
+    # Diagnóstico de llaves (solo primeros 5 caracteres)
+    c_key = os.getenv("CLAUDE_API_KEY", "MISSING")
+    g_key = os.getenv("GOOGLE_API_KEY", "MISSING")
+    keys_info = f"Keys: Claude({c_key[:5]}...), Google({g_key[:5]}...)"
 
-    # 1. INTENTAR CLAUDE (Prioridad Alta)
+    # 1. INTENTAR CLAUDE
     for model_name in CLAUDE_MODELS:
         try:
             response = await anthropic_client.messages.create(
@@ -91,28 +95,28 @@ async def process_message(text: str, history: list) -> str:
             )
             return await handle_anthropic_response(response, history, dynamic_system)
         except Exception as e:
-            error_log.append(f"Claude ({model_name}): {str(e)[:50]}")
+            error_log.append(f"Claude {model_name}: {str(e)[:50]}")
             continue
 
-    # 2. FALLBACK GEMINI (Inteligencia Pro -> Flash)
+    # 2. FALLBACK GEMINI
     for g_model in GEMINI_MODELS:
         try:
             model = genai.GenerativeModel(g_model)
             chat_ctx = "\n".join([f"{m['role']}: {str(m.get('content'))[:400]}" for m in history[-6:]])
-            prompt = f"{dynamic_system}\n\n[MODO RESILIENCIA]\nContexto:\n{chat_ctx}\n\nSantiago dice: {text}"
+            prompt = f"{dynamic_system}\n\n[RESILIENCIA]\nContexto:\n{chat_ctx}\n\nSantiago: {text}"
             
             response_google = await model.generate_content_async(prompt)
             if response_google.text:
                 history.append({"role": "assistant", "content": response_google.text})
-                footer = f"\n\n_(Usando {g_model} por mantenimiento en Claude)_"
+                footer = f"\n\n_(Motor: {g_model})_"
                 return response_google.text + footer
         except Exception as ge:
-            error_log.append(f"Gemini ({g_model}): {str(ge)[:50]}")
+            error_log.append(f"Gemini {g_model}: {str(ge)[:50]}")
             continue
 
-    # 3. ÚLTIMO RECURSO (Falla Total)
+    # 3. FALLA TOTAL
     debug_str = "\n".join(error_log)
-    return f"❌ Error Crítico: No pude conectar con ninguna IA.\nDetalles:\n{debug_str[:200]}"
+    return f"❌ Falla Crítica de IA.\n{keys_info}\n\nDetalles:\n{debug_str[:250]}"
 
 async def handle_anthropic_response(response, history, dynamic_system):
     tool_uses = [b for b in response.content if getattr(b, "type", "") == "tool_use"]
